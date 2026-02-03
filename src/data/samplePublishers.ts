@@ -1,10 +1,25 @@
 /**
  * Sample Publisher Data
  * A curated dataset of publishers across various niches for demonstration
+ *
+ * This file contains:
+ * 1. Curated sample publishers for specific niches (manually created)
+ * 2. Integration with MBFC (Media Bias/Fact Check) scraped data (3,900+ publishers)
+ *
+ * Data Sources:
+ * - MBFC Bias Data: https://github.com/idiap/Factual-Reporting-and-Political-Bias-Web-Interactions
+ * - MBFC Corpus: https://github.com/ramybaly/News-Media-Reliability
  */
 
 import { Publisher, PublisherCategory } from '../types';
 import { generateId } from '../utils/helpers';
+import {
+  loadAllMBFCPublishers,
+  filterByFactualReporting,
+  filterByBias,
+  getDatasetStats,
+  MBFCPublisher
+} from './mbfcDataLoader';
 
 /**
  * Technology publishers
@@ -480,7 +495,7 @@ export function getAllPublishers(): Publisher[] {
 }
 
 /**
- * Get publishers by niche ID
+ * Get publishers by niche ID (curated sample data)
  */
 export function getPublishersByNiche(nicheId: string): Publisher[] {
   const nicheMap: Record<string, Publisher[]> = {
@@ -500,3 +515,94 @@ export function getPublishersByNiche(nicheId: string): Publisher[] {
 
   return nicheMap[nicheId] || getAllPublishers();
 }
+
+// ============================================================================
+// MBFC (Media Bias/Fact Check) Data Integration
+// Real scraped data from 3,900+ news publishers
+// ============================================================================
+
+let mbfcPublishersCache: MBFCPublisher[] | null = null;
+
+/**
+ * Get all publishers from MBFC dataset (3,900+ publishers)
+ * Data is cached after first load for performance
+ */
+export function getMBFCPublishers(): MBFCPublisher[] {
+  if (!mbfcPublishersCache) {
+    mbfcPublishersCache = loadAllMBFCPublishers();
+  }
+  return mbfcPublishersCache;
+}
+
+/**
+ * Get high-quality publishers from MBFC (high factual reporting only)
+ * These are the most reliable sources for AI visibility
+ */
+export function getHighQualityMBFCPublishers(): MBFCPublisher[] {
+  const allPublishers = getMBFCPublishers();
+  return filterByFactualReporting(allPublishers, ['high']);
+}
+
+/**
+ * Get neutral/center publishers from MBFC
+ * These tend to be the most cited in AI training data
+ */
+export function getNeutralMBFCPublishers(): MBFCPublisher[] {
+  const allPublishers = getMBFCPublishers();
+  return filterByBias(allPublishers, ['neutral', 'left-center', 'right-center']);
+}
+
+/**
+ * Get MBFC publishers filtered by both quality and bias
+ */
+export function getFilteredMBFCPublishers(options: {
+  factualReporting?: string[];
+  bias?: string[];
+}): MBFCPublisher[] {
+  let publishers = getMBFCPublishers();
+
+  if (options.factualReporting && options.factualReporting.length > 0) {
+    publishers = filterByFactualReporting(publishers, options.factualReporting);
+  }
+
+  if (options.bias && options.bias.length > 0) {
+    publishers = filterByBias(publishers, options.bias);
+  }
+
+  return publishers;
+}
+
+/**
+ * Get statistics about the MBFC dataset
+ */
+export function getMBFCDatasetStats() {
+  const publishers = getMBFCPublishers();
+  return getDatasetStats(publishers);
+}
+
+/**
+ * Get all publishers - combines curated samples with MBFC data
+ * Use 'source' parameter to specify which dataset to use:
+ * - 'curated': Only hand-picked sample publishers (52)
+ * - 'mbfc': Only MBFC scraped data (3,900+)
+ * - 'all': Combined dataset (default)
+ */
+export function getAllPublishersExtended(source: 'curated' | 'mbfc' | 'all' = 'all'): Publisher[] {
+  switch (source) {
+    case 'curated':
+      return getAllPublishers();
+    case 'mbfc':
+      return getMBFCPublishers();
+    case 'all':
+    default:
+      // Combine both, with curated taking precedence for duplicates
+      const curatedDomains = new Set(getAllPublishers().map(p => p.domain.toLowerCase()));
+      const mbfcPublishers = getMBFCPublishers().filter(
+        p => !curatedDomains.has(p.domain.toLowerCase())
+      );
+      return [...getAllPublishers(), ...mbfcPublishers];
+  }
+}
+
+// Re-export MBFC types and utilities
+export { MBFCPublisher, filterByFactualReporting, filterByBias, getDatasetStats };

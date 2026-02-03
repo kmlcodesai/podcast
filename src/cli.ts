@@ -14,7 +14,13 @@ import * as path from 'path';
 import { PublisherService } from './services/publisherService';
 import { OutputService } from './services/outputService';
 import { ScoringService } from './services/scoringService';
-import { getAllPublishers, getPublishersByNiche } from './data/samplePublishers';
+import {
+  getAllPublishers,
+  getPublishersByNiche,
+  getAllPublishersExtended,
+  getHighQualityMBFCPublishers,
+  getMBFCDatasetStats
+} from './data/samplePublishers';
 import { PREDEFINED_NICHES, DEFAULT_SCORING_WEIGHTS } from './config/defaults';
 import {
   OutputFormat,
@@ -43,6 +49,8 @@ program
   .option('-f, --file <path>', 'Output file path (defaults to stdout)')
   .option('-m, --max <number>', 'Maximum number of publishers', '50')
   .option('-s, --min-score <number>', 'Minimum AI visibility score threshold', '40')
+  .option('--source <source>', 'Data source: curated (52), mbfc (3900+), all (combined)', 'curated')
+  .option('--high-quality', 'Only include high factual reporting publishers (MBFC only)')
   .option('--include-categories <categories>', 'Comma-separated categories to include')
   .option('--exclude-categories <categories>', 'Comma-separated categories to exclude')
   .option('--exclude-domains <domains>', 'Comma-separated domains to exclude')
@@ -55,15 +63,26 @@ program
       const outputFormat = parseOutputFormat(options.output);
       const maxPublishers = parseInt(options.max) || 50;
       const minScore = parseInt(options.minScore) || 40;
+      const dataSource = options.source || 'curated';
 
-      // Get publishers
+      // Get publishers based on source
       let publishers: Publisher[];
-      if (options.niche) {
+
+      if (dataSource === 'mbfc' || dataSource === 'all') {
+        // Use MBFC scraped data
+        if (options.highQuality) {
+          publishers = getHighQualityMBFCPublishers();
+          spinner.text = `Loading ${publishers.length} high-quality MBFC publishers...`;
+        } else {
+          publishers = getAllPublishersExtended(dataSource as 'mbfc' | 'all');
+          spinner.text = `Loading ${publishers.length} publishers from ${dataSource} dataset...`;
+        }
+      } else if (options.niche) {
         publishers = getPublishersByNiche(options.niche.toLowerCase());
         spinner.text = `Analyzing ${publishers.length} publishers in ${options.niche} niche...`;
       } else {
         publishers = getAllPublishers();
-        spinner.text = `Analyzing ${publishers.length} publishers across all niches...`;
+        spinner.text = `Analyzing ${publishers.length} curated publishers...`;
       }
 
       // Build config
@@ -294,6 +313,51 @@ program
     });
 
     console.log('\n' + chalk.gray('Use with: media-list-builder build --niche <niche-id>'));
+  });
+
+/**
+ * Stats command - Show MBFC dataset statistics
+ */
+program
+  .command('stats')
+  .description('Show statistics about the MBFC scraped dataset')
+  .action(() => {
+    console.log('\n' + chalk.cyan.bold('MBFC Dataset Statistics'));
+    console.log(chalk.cyan('═'.repeat(60)));
+
+    const stats = getMBFCDatasetStats();
+
+    console.log(`\n${chalk.bold('Total Publishers:')} ${chalk.green(stats.total.toLocaleString())}`);
+
+    console.log(`\n${chalk.bold('By Factual Reporting:')}`);
+    Object.entries(stats.byFactualReporting)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([level, count]) => {
+        const bar = '█'.repeat(Math.round(count / stats.total * 30));
+        console.log(`  ${level.padEnd(12)} ${chalk.blue(bar)} ${count}`);
+      });
+
+    console.log(`\n${chalk.bold('By Political Bias:')}`);
+    Object.entries(stats.byBias)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([bias, count]) => {
+        const bar = '█'.repeat(Math.round(count / stats.total * 30));
+        console.log(`  ${bias.padEnd(20)} ${chalk.yellow(bar)} ${count}`);
+      });
+
+    console.log(`\n${chalk.bold('By Category:')}`);
+    Object.entries(stats.byCategory)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .forEach(([category, count]) => {
+        const bar = '█'.repeat(Math.round(count / stats.total * 30));
+        console.log(`  ${category.padEnd(20)} ${chalk.magenta(bar)} ${count}`);
+      });
+
+    console.log('\n' + chalk.gray('Data sources:'));
+    console.log(chalk.gray('  - https://github.com/idiap/Factual-Reporting-and-Political-Bias-Web-Interactions'));
+    console.log(chalk.gray('  - https://github.com/ramybaly/News-Media-Reliability'));
+    console.log('\n' + chalk.gray('Use with: media-list-builder build --source mbfc'));
   });
 
 /**

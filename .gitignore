@@ -32,7 +32,11 @@ npm-debug.log*
 
 # Output files
 output/
-*.csv
-*.html
 media-list-*.json
 media-list-*.md
+media-list-*.csv
+media-list-*.html
+
+# Allow data files in src/data
+!src/data/*.csv
+!src/data/*.tsv
